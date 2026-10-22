@@ -17,6 +17,7 @@ if str(ROOT) not in sys.path:
 
 from scripts.ablation.eval_gppo_prebuilt_trace import run_prebuilt_gppo_trace
 from scripts.ablation.eval_recurrent_prebuilt_trace import run_prebuilt_recurrent_trace
+from scripts.ablation.infer_episode_trace import load_checkpoint_payload
 
 
 CELLS = {
@@ -56,6 +57,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--verbose", action="store_true")
     parser.add_argument(
+        "--trust-checkpoint",
+        action="store_true",
+        help="allow unsafe pickle loading for checkpoints from a trusted source",
+    )
+    parser.add_argument(
         "--observation_feature_mode",
         choices=("legacy_rh_only", "causal_resource_v1", "causal_resource_v2"),
         default="legacy_rh_only",
@@ -70,8 +76,13 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def validate_metadata(path: Path, cell: str, args: argparse.Namespace) -> dict[str, Any]:
-    import torch
+def validate_metadata(
+    path: Path,
+    cell: str,
+    args: argparse.Namespace,
+    *,
+    trust_checkpoint: bool = False,
+) -> dict[str, Any]:
     from src.model.model import (
         STGNN_ARCHITECTURE_VERSION,
         STGNN_HIDDEN_RESET_MODE,
@@ -79,7 +90,9 @@ def validate_metadata(path: Path, cell: str, args: argparse.Namespace) -> dict[s
         STGNN_TEMPORAL_FUSION_MODE,
     )
     from src.pipeline.data_pipeline import MockCsvDatasetLoader
-    payload = torch.load(path, map_location="cpu", weights_only=False)
+    payload = load_checkpoint_payload(
+        path, map_location="cpu", trust_checkpoint=trust_checkpoint
+    )
     metadata = payload.get("metadata", {})
     project_config = MockCsvDatasetLoader(args.dataset_dir, args.config).project_config
     expected = {
@@ -169,12 +182,16 @@ def main() -> None:
     rows = []
     for cell in selected_cells:
         architecture, feature_mode = CELLS[cell]
-        checkpoint = Path(getattr(args, f"{cell}_checkpoint")); validate_metadata(checkpoint, cell, args)
+        checkpoint = Path(getattr(args, f"{cell}_checkpoint"))
+        validate_metadata(
+            checkpoint, cell, args, trust_checkpoint=args.trust_checkpoint
+        )
         output = root / cell
         kwargs = dict(dataset_dir=args.dataset_dir, params_path=args.params, checkpoint_path=checkpoint,
                       episode_length=args.episode_length, num_episodes=args.num_episodes, device=args.device,
                       config_path=args.config, output_dir=output, episodes=args.episodes,
                       policy="greedy", seed=args.seed, verbose=args.verbose,
+                      trust_checkpoint=args.trust_checkpoint,
                       # Schema mismatches remain strict by default. The explicit
                       # OOD opt-in records them as warnings in evaluation output.
                       allow_schema_mismatch=args.allow_ood_dataset)

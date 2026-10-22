@@ -13,7 +13,7 @@ from typing import Any, Callable
 import numpy as np
 import torch
 
-from .infer_episode_trace import save_model_checkpoint
+from .infer_episode_trace import load_checkpoint_payload, save_model_checkpoint
 from src.model.causal_observation import (
     CAUSAL_RESOURCE_OBSERVATION_FEATURE_MODE,
     CAUSAL_RESOURCE_OBSERVATION_SCHEMA,
@@ -87,7 +87,7 @@ def capture_training_state(trainer: Any, completed_iteration: int) -> dict[str, 
         "completed_iteration": completed_iteration,
         "optimizer_state_dict": trainer.optimizer.state_dict(),
         "python_random_state": random.getstate(),
-        "numpy_random_state": np.random.get_state(),
+        "numpy_random_state": _serialize_numpy_random_state(np.random.get_state()),
         "torch_rng_state": torch.get_rng_state(),
         "cuda_rng_states": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None,
         "environment_states": [_capture_environment_state(env) for env in _trainer_environments(trainer)],
@@ -108,7 +108,16 @@ def restore_training_state(trainer: Any, state: dict[str, Any]) -> int:
     trainer.optimizer.load_state_dict(state["optimizer_state_dict"])
     _move_optimizer_state_to_device(trainer.optimizer, trainer.device)
     random.setstate(state["python_random_state"])
-    np.random.set_state(state["numpy_random_state"])
+    numpy_state = state["numpy_random_state"]
+    if isinstance(numpy_state, dict):
+        numpy_state = (
+            numpy_state["algorithm"],
+            np.asarray(numpy_state["keys"], dtype=np.uint32),
+            int(numpy_state["position"]),
+            int(numpy_state["has_gauss"]),
+            float(numpy_state["cached_gaussian"]),
+        )
+    np.random.set_state(numpy_state)
     torch.set_rng_state(state["torch_rng_state"])
     if torch.cuda.is_available() and state.get("cuda_rng_states") is not None:
         torch.cuda.set_rng_state_all(state["cuda_rng_states"])
@@ -189,6 +198,8 @@ def prepare_resume(
     checkpoint_path: Path,
     fieldnames: list[str],
     trainer: Any,
+    *,
+    trust_checkpoint: bool = False,
 ) -> ResumeProgress:
     """Select a checkpoint, validate its CSV, and restore trainer state."""
 
@@ -199,7 +210,9 @@ def prepare_resume(
             "--resume was requested but no numbered periodic checkpoint or final checkpoint was found: "
             f"{checkpoint_path}"
         )
-    payload = _load_checkpoint_payload(selected_path, trainer.device)
+    payload = _load_checkpoint_payload(
+        selected_path, trainer.device, trust_checkpoint=trust_checkpoint
+    )
     training_state = payload.get("training_state")
     if not isinstance(training_state, dict) or "completed_iteration" not in training_state:
         raise ValueError(
@@ -229,6 +242,8 @@ def prepare_finetune(
     input_checkpoint_path: Path,
     fieldnames: list[str],
     trainer: Any,
+    *,
+    trust_checkpoint: bool = False,
 ) -> ResumeProgress:
     """Load an explicit fine-tune checkpoint while preserving the CSV bytes.
 
@@ -244,7 +259,9 @@ def prepare_finetune(
             f"--input-weight requires the existing metrics CSV: {output_path}"
         )
 
-    payload = _load_checkpoint_payload(input_checkpoint_path, trainer.device)
+    payload = _load_checkpoint_payload(
+        input_checkpoint_path, trainer.device, trust_checkpoint=trust_checkpoint
+    )
     metadata = payload.get("metadata", {})
     if not isinstance(metadata, dict):
         raise ValueError(f"fine-tune checkpoint metadata must be a dictionary: {input_checkpoint_path}")
@@ -395,11 +412,29 @@ def _load_all_contiguous_rows(
     return rows
 
 
-def _load_checkpoint_payload(path: Path, device: torch.device) -> dict[str, Any]:
-    payload = torch.load(path, map_location=device, weights_only=False)
+def _load_checkpoint_payload(
+    path: Path,
+    device: torch.device,
+    *,
+    trust_checkpoint: bool = False,
+) -> dict[str, Any]:
+    payload = load_checkpoint_payload(
+        path, map_location=device, trust_checkpoint=trust_checkpoint
+    )
     if not isinstance(payload, dict) or "model_state_dict" not in payload:
         raise ValueError(f"invalid resumable checkpoint payload: {path}")
     return payload
+
+
+def _serialize_numpy_random_state(state: tuple[Any, ...]) -> dict[str, Any]:
+    algorithm, keys, position, has_gauss, cached_gaussian = state
+    return {
+        "algorithm": str(algorithm),
+        "keys": np.asarray(keys, dtype=np.uint32).tolist(),
+        "position": int(position),
+        "has_gauss": int(has_gauss),
+        "cached_gaussian": float(cached_gaussian),
+    }
 
 
 def _trainer_environments(trainer: Any) -> list[Any]:

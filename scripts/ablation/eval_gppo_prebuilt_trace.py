@@ -120,6 +120,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--verbose", action="store_true")
     parser.add_argument("--observation_feature_mode", choices=OBSERVATION_FEATURE_MODES,
                         default=LEGACY_OBSERVATION_FEATURE_MODE)
+    parser.add_argument("--trust-checkpoint", action="store_true",
+                        help="allow unsafe pickle loading for checkpoints from a trusted source")
     return parser.parse_args()
 
 
@@ -143,6 +145,7 @@ def run_prebuilt_gppo_trace(
     verbose: bool = False,
     allow_schema_mismatch: bool = False,
     observation_feature_mode: str = LEGACY_OBSERVATION_FEATURE_MODE,
+    trust_checkpoint: bool = False,
     infeasibility_repair: str = "none",
     repair_top_k: int = 5,
     repair_max_iterations: int = 5,
@@ -202,6 +205,7 @@ def run_prebuilt_gppo_trace(
         ).to(torch_device)
         checkpoint_metadata = load_model_checkpoint(
         checkpoint_path, model, torch_device,
+        trust_checkpoint=trust_checkpoint,
         expected_observation_feature_mode=observation_feature_mode,
         expected_observation_schema_version=observation_schema_for_mode(
             loaded_episode, observation_feature_mode
@@ -471,6 +475,7 @@ def main() -> None:
         split_mode=args.split_mode,
         verbose=args.verbose,
         observation_feature_mode=args.observation_feature_mode,
+        trust_checkpoint=args.trust_checkpoint,
         infeasibility_repair=args.infeasibility_repair,
         repair_top_k=args.repair_top_k,
         repair_max_iterations=args.repair_max_iterations,

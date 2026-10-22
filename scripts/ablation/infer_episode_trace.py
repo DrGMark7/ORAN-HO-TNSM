@@ -71,6 +71,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--temporal_window_size", type=int, default=None)
     parser.add_argument("--deterministic", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--episode_index", type=int, default=0)
+    parser.add_argument(
+        "--trust-checkpoint",
+        action="store_true",
+        help="allow unsafe pickle loading for a checkpoint from a trusted source",
+    )
     return parser.parse_args()
 
 
@@ -94,6 +99,24 @@ def save_model_checkpoint(
     torch.save(checkpoint, Path(path))
 
 
+def load_checkpoint_payload(
+    path: str | Path,
+    *,
+    map_location: str | torch.device,
+    trust_checkpoint: bool = False,
+) -> Any:
+    """Load tensor/primitive checkpoints safely unless trust is explicit.
+
+    ``trust_checkpoint`` permits arbitrary pickle code execution. It is only
+    intended for legacy checkpoints obtained from a trusted source.
+    """
+    return torch.load(
+        Path(path),
+        map_location=map_location,
+        weights_only=not trust_checkpoint,
+    )
+
+
 def load_model_checkpoint(
     path: str | Path,
     model: torch.nn.Module,
@@ -103,13 +126,13 @@ def load_model_checkpoint(
     expected_observation_feature_mode: str | None = None,
     expected_observation_schema_version: str | None = None,
     expected_observation_feature_names: tuple[str, ...] | None = None,
+    trust_checkpoint: bool = False,
 ) -> dict[str, Any]:
     """Load either a raw state_dict or a dict containing ``model_state_dict``."""
 
-    # These are repository-produced full checkpoints containing trusted NumPy
-    # metadata/training state in addition to tensors. PyTorch 2.6 defaults to
-    # weights_only=True, which cannot deserialize that established schema.
-    checkpoint = torch.load(Path(path), map_location=device, weights_only=False)
+    checkpoint = load_checkpoint_payload(
+        path, map_location=device, trust_checkpoint=trust_checkpoint
+    )
     if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
         state_dict = checkpoint["model_state_dict"]
         metadata = {
@@ -281,7 +304,9 @@ def run_episode_trace(
         hidden_dim=int(project_config["model"]["hidden_dim"]),
         num_actions_per_rh=spec.num_actions_per_rh,
     ).to(torch_device)
-    checkpoint_metadata = load_model_checkpoint(checkpoint_path, model, torch_device)
+    checkpoint_metadata = load_model_checkpoint(
+        checkpoint_path, model, torch_device, trust_checkpoint=args.trust_checkpoint
+    )
     validate_constraint_formulation_metadata(checkpoint_metadata, project_config)
     validate_normalization_metadata(checkpoint_metadata, project_config)
     model.eval()

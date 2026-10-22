@@ -29,6 +29,7 @@ def parser():
  p.add_argument('--repair-beam-width',type=int,default=4)
  p.add_argument('--repair-mode',choices=('bounded','deadline'),default='bounded')
  p.add_argument('--repair-decision-budget-seconds',type=float)
+ p.add_argument('--trust-checkpoint',action='store_true',help='allow unsafe pickle loading for checkpoints from a trusted source')
  p.add_argument('--output-dir',type=Path,default=ROOT/'outputs/inference')
  return p
 
@@ -47,7 +48,8 @@ def main(argv=None):
   '--output_dir',str(a.output_dir.resolve()),'--episodes',a.episodes,'--cells',','.join(CELLS[x] for x in selected),
   '--seed',str(a.seed),'--device',a.device,'--observation_feature_mode',a.observation_feature_mode,
   '--infeasibility-repair',a.repair,'--repair-top-k',str(a.repair_top_k),'--repair-max-iterations',str(a.repair_max_iterations),
-  '--repair-beam-width',str(a.repair_beam_width),'--repair-mode',a.repair_mode,'--allow_ood_dataset']
+ '--repair-beam-width',str(a.repair_beam_width),'--repair-mode',a.repair_mode,'--allow_ood_dataset']
+ if a.trust_checkpoint: cmd.append('--trust-checkpoint')
  for cell,path in checkpoints.items(): cmd.extend([f'--{cell}_checkpoint',str(path)])
  if a.repair_decision_budget_seconds is not None: cmd.extend(['--repair-decision-budget-seconds',str(a.repair_decision_budget_seconds)])
  return subprocess.call(cmd,cwd=ROOT)

@@ -132,6 +132,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--verbose", action="store_true")
     parser.add_argument("--observation_feature_mode", choices=OBSERVATION_FEATURE_MODES,
                         default=LEGACY_OBSERVATION_FEATURE_MODE)
+    parser.add_argument("--trust-checkpoint", action="store_true",
+                        help="allow unsafe pickle loading for checkpoints from a trusted source")
     return parser.parse_args()
 
 
@@ -153,6 +155,7 @@ def run_prebuilt_recurrent_trace(
     allow_schema_mismatch: bool = False,
     temporal_mode: str = "recurrent",
     observation_feature_mode: str = LEGACY_OBSERVATION_FEATURE_MODE,
+    trust_checkpoint: bool = False,
     infeasibility_repair: str = "none",
     repair_top_k: int = 5,
     repair_max_iterations: int = 5,
@@ -221,6 +224,7 @@ def run_prebuilt_recurrent_trace(
         ).to(torch_device)
         checkpoint_metadata = load_model_checkpoint(
         checkpoint, model, torch_device,
+        trust_checkpoint=trust_checkpoint,
         expected_observation_feature_mode=observation_feature_mode,
         expected_observation_schema_version=observation_schema_for_mode(
             episode, observation_feature_mode
@@ -1037,6 +1041,7 @@ def main() -> None:
         allow_schema_mismatch=args.allow_schema_mismatch,
         temporal_mode=args.temporal_mode,
         observation_feature_mode=args.observation_feature_mode,
+        trust_checkpoint=args.trust_checkpoint,
         infeasibility_repair=args.infeasibility_repair,
         repair_top_k=args.repair_top_k,
         repair_max_iterations=args.repair_max_iterations,

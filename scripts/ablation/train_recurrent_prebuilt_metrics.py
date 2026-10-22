@@ -119,6 +119,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--evaluation_output", default=None)
     parser.add_argument("--resume", action="store_true", help="resume from the latest periodic checkpoint")
+    parser.add_argument(
+        "--trust-checkpoint",
+        action="store_true",
+        help="allow unsafe pickle loading for legacy checkpoints from a trusted source",
+    )
     parser.add_argument("--input-weight", dest="input_weight", default=None, help=argparse.SUPPRESS)
     parser.add_argument("--ignore-fingerprint", action="store_true", help=argparse.SUPPRESS)
     return parser.parse_args()
@@ -177,7 +182,10 @@ def main() -> None:
     target_iterations = args.iterations
     if args.resume:
         assert checkpoint_path is not None
-        resume = prepare_resume(output_path, checkpoint_path, FIELDNAMES, trainer)
+        resume = prepare_resume(
+            output_path, checkpoint_path, FIELDNAMES, trainer,
+            trust_checkpoint=args.trust_checkpoint,
+        )
         rows = resume.rows
         completed_iteration = resume.completed_iteration
         if args.verbose:
@@ -202,7 +210,10 @@ def main() -> None:
 
     fine_tune = None
     if args.input_weight is not None:
-        fine_tune = prepare_finetune(output_path, Path(args.input_weight), FIELDNAMES, trainer)
+        fine_tune = prepare_finetune(
+            output_path, Path(args.input_weight), FIELDNAMES, trainer,
+            trust_checkpoint=args.trust_checkpoint,
+        )
         historical_rows = fine_tune.rows
         completed_iteration = fine_tune.completed_iteration
         target_iterations = completed_iteration + args.iterations
