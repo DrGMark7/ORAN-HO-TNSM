@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+outputs/*
+!outputs/.gitkeep
+src/bench/cpp/build/
+.venv/
+build/

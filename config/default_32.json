@@ -1,0 +1,34 @@
+{
+  "rl_config_schema_version": "oran_rl_config_v2",
+  "experiment": {
+    "scope": "handover-aware-orchestration-phase-1"
+  },
+  "observation": {
+    "feature_mode": "legacy_rh_only"
+  },
+  "reward": {
+    "transform": "inverse_log",
+    "invalid_action_reward": -1.0,
+    "reward_graph_scale_mode": "legacy_total_cost"
+  },
+  "ppo": {
+    "learning_rate": 0.0005,
+    "gamma": 0.99,
+    "clip_epsilon": 0.2,
+    "entropy_coef": 0.01,
+    "entropy_scale_mode": "legacy_sum",
+    "value_coef": 0.5,
+    "update_epochs": 3,
+    "rollout_episodes": 2
+  },
+  "model": {
+    "hidden_dim": 32,
+    "temporal_window_size": 3
+  },
+  "training": {
+    "default_iterations": 1
+  },
+  "diagnostics": {
+    "enable_temporal_logit_delta": false
+  }
+}

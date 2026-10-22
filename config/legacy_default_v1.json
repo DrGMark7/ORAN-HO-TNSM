@@ -1,0 +1,56 @@
+{
+  "scope": "handover-aware-orchestration-phase-1",
+  "observation_feature_mode": "legacy_rh_only",
+  "cost_weights": {
+    "placement": 1.0,
+    "compute_overload": 50.0,
+    "link_violation": 40.0,
+    "pdcp_state_transfer": 0.8,
+    "rlc_state_transfer": 0.6,
+    "handover_sla": 10.0,
+    "invalid_action": 1000.0
+  },
+  "constraint": {
+    "infeasible_path_penalty": 100.0,
+    "latency_excess_penalty": 10.0,
+    "min_effective_bandwidth_mbps": 1.0,
+    "latency_objective_mode": "end_to_end"
+  },
+  "reward": {
+    "transform": "negative_cost_per_10_rh",
+    "invalid_action_reward": -1.0,
+    "reward_graph_scale_mode": "legacy_total_cost"
+  },
+  "handover_control": {
+    "enabled": false,
+    "rrc_anchor_crossing_weight": 0.0
+  },
+  "reconfiguration_cost": {
+    "enabled": true,
+    "split_change_weight": 0.25,
+    "es_change_weight": 0.50,
+    "rc_change_weight": 1.00
+  },
+  "constraint_formulation_version": "e2e_latency_inverse_log_v2",
+  "handover_sla": {
+    "base_latency_ms": 12.0,
+    "budget_ms": 35.0,
+    "mbps_to_mb_per_ms": 0.000125
+  },
+  "ppo": {
+    "learning_rate": 0.0005,
+    "gamma": 0.99,
+    "clip_epsilon": 0.2,
+    "entropy_coef": 0.01,
+    "entropy_scale_mode": "legacy_sum",
+    "value_coef": 0.5,
+    "update_epochs": 3,
+    "rollout_episodes": 2,
+    "enable_temporal_logit_delta_diagnostic": false,
+    "temporal_window_size": 3,
+    "default_iterations": 1
+  },
+  "model": {
+    "hidden_dim": 16
+  }
+}
