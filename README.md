@@ -1,26 +1,32 @@
 # ORAN-HO placement policies
 
-This repository trains and evaluates four policies for placing O-RAN functional splits. Handover is an observed mobility and cost signal; the policy does not control the radio handover procedure. The five supported split actions are S1, S2, S3, S4G, and S4D. Training, inference, and the CPLEX benchmark share the same exact Python evaluator.
+This repository trains and evaluates four policies for placing O-RAN functional splits. The agent chooses the split and vDU/vCU placement for each radio head. Handover is an observed mobility and cost signal; the agent does not control the radio handover procedure. The supported split actions are S1, S2, S3, S4G, and S4D. Training, inference, and the CPLEX benchmark use the same exact Python evaluator.
 
-## Repository contents
+## Source-only checkout
 
-| Path | Purpose |
-| --- | --- |
-| `src/` | Environment, data loader, policy models, evaluator, repair logic, and CPLEX bridge |
-| `scripts/train.py` | Training entry point |
-| `scripts/infer.py` | Inference entry point |
-| `scripts/benchmark_cplex.py` | CPLEX benchmark entry point |
-| `config/` | Training configurations |
-| `mock_data/` | Prebuilt datasets; not included in the current source-only GitHub repository |
-| `outputs/` | Generated metrics, checkpoints, and traces; ignored by Git |
+The GitHub repository contains source and configuration only. It does not contain prebuilt datasets or pretrained checkpoints. Dataset-based commands require a compatible prebuilt dataset with its `generation_params.yaml`:
+
+- Training data: `mock_data/v2/`
+- Held-out data: `mock_data/testset/`
+
+Place those directories at the repository root, or supply another dataset directory with `--dataset`. No download URL is provided. Generated metrics, logs, traces, and checkpoints go under `outputs/` by default. The tracked `outputs/.gitkeep` preserves the directory; generated contents are ignored by Git.
+
+Run source-only maintenance checks with the documented Python dependencies:
+
+```bash
+python -m unittest discover -s tests -v
+bash train.sh --help
+python scripts/infer.py --help
+python scripts/benchmark_cplex.py --help
+```
+
+Dataset and licensed CPLEX integration tests are included in the same unittest discovery command. They run when their exact data/native prerequisites are present and otherwise report `SKIP` with the missing path or license condition. A skip means that integration was not validated in that environment.
 
 ## Installation
 
-Linux and Python 3.12 are the verified platform. A CPU is sufficient for short software checks; full training is computationally substantial. Install a PyTorch build suited to your hardware if the default package wheel is unsuitable.
+Python 3.12 is the maintained release target. The locally validated Conda environment used Python 3.12.13, PyTorch 2.11.0+cu128, PyTorch Geometric 2.8.0, NumPy 2.4.6, Polars 1.41.2, Gymnasium 1.3.0, Numba 0.67.0, PyYAML 6.0.3, and docplex 2.32.264. This is a compatibility record, not a guarantee of a fresh installation. PyTorch and PyTorch Geometric wheels can depend on the operating system, Python, and CPU/CUDA choice; choose compatible builds for your machine before installing the remaining requirements.
 
-The tested environment used Python 3.12.13, PyTorch 2.11.0+cu128, PyTorch Geometric 2.8.0, NumPy 2.4.6, Polars 1.41.2, Gymnasium 1.3.0, Numba 0.67.0, and PyYAML 6.0.3. CUDA was unavailable on that host. A clean independent installation has not been verified.
-
-Using `venv`:
+For example, create an isolated environment and install the project requirements after selecting an appropriate PyTorch/PyG build for the platform:
 
 ```bash
 python3.12 -m venv .venv
@@ -28,90 +34,50 @@ python3.12 -m venv .venv
 python -m pip install -r requirements.txt
 ```
 
-Or using Conda:
-
-```bash
-conda env create -f environment.yml
-conda activate oran-ho-release
-```
-
-The training and inference workflows use NumPy, Polars, PyTorch, PyTorch Geometric, Gymnasium, Numba, tqdm, and PyYAML. The CPLEX workflow also requires IBM CPLEX Studio and a valid license, a C++17 compiler, CMake, and OpenMP. The Python `docplex` package alone is not sufficient; this repository uses a native CPLEX bridge.
+The CPLEX workflow additionally requires IBM CPLEX Studio, a valid license, a C++17 compiler, CMake, and OpenMP. The Python `docplex` package alone is not sufficient. IBM software and license files are not distributed here.
 
 ## Training
 
-Training runs sequentially and logs each model variant separately. Defaults are a 288-step daily episode, 100 episodes, seed 13, causal resource v2 observations, and 60,000 iterations. Checkpoints are generated during training and are not included in the repository.
+`train.sh` maps model names to the four release variants: `gppo` → `gppo_no_ho`, `gppo_ho` → `gppo_ho`, `stgnn` → `stgnn_no_ho`, and `stgnn_ho` → `stgnn_ho`. Use `--models all` to train all four sequentially. The default public observation mode is `causal_resource_v2`; it is selected by the CLI and overrides the legacy observation mode recorded in the JSON configuration files. Set `--observation-feature-mode` explicitly when reproducing a different checkpoint configuration.
 
 ```bash
 bash train.sh --models all --topology 8 --config config/default_32.json
 bash train.sh --models stgnn --topology 16 --config config/default_32.json
+bash train.sh --models all --dataset /path/to/training-dataset --iterations 1 --eval-scenarios none
 ```
 
-Use `--dataset` to select another compatible prebuilt training dataset and `--output-dir` to change the output location. Other configurable options include `--iterations`, `--seed`, `--device`, and `--observation-feature-mode`.
+The dataset must contain a complete `episode_length × num_episodes` layout. The paper runs use 288-step daily episodes and 100 episodes. A one-iteration run still processes the configured complete episodes; it is a software smoke check only. It is not a paper result or a substitute for the 60,000-iteration experiments. No smoke checkpoint is a published research result. By default, per-variant metrics, checkpoints, and logs are written under `outputs/training/<variant>/`.
 
-A short run such as `--iterations 1 --eval-scenarios none` checks software execution; it is not a research result. By default, each variant writes `metrics.csv`, `checkpoint.pt`, and `train.log` under `outputs/training/<cell>/`. The `gppo` and `stgnn` names select variants without handover awareness; the `_ho` suffix selects handover-aware variants.
+## Held-out inference
 
-## Inference
-
-Inference requires a checkpoint that matches the model architecture and observation mode. Checkpoints are read from `outputs/training/` by default. Use the individual checkpoint options to override paths:
-
-- `--gppo_no_ho-checkpoint`
-- `--gppo_ho-checkpoint`
-- `--stgnn_no_ho-checkpoint`
-- `--stgnn_ho-checkpoint`
-
-Actions use greedy masking and the exact evaluator. Optional bounded Top-K repair defaults to K=5, five iterations, and beam width 4. Output CSVs include direct and repaired feasibility, costs, and timings. Test datasets differ from training datasets, so the public launcher permits a dataset identity difference while still checking architecture and formulation.
+Inference requires checkpoints compatible with the model architecture, observation features, and constraint formulation. The public launcher allows the held-out dataset identity to differ from the training dataset; other required metadata remains checked.
 
 ```bash
 python scripts/infer.py --models all --topology 8 --condition Regular --episodes 0 --checkpoint-dir outputs/training
 python scripts/infer.py --models gppo --topology 8 --condition Hard1 --episodes 0 --repair topk
+python scripts/infer.py --models all --dataset /path/to/held-out-dataset --episodes 0
 ```
 
-`--condition` accepts `Regular`, `Hard1`, or `Hard2`. Use `--dataset` to select a different test dataset. Set `--repair none` to disable repair. The `--repair-mode deadline` option requires `--repair-decision-budget-seconds`.
+`--condition` accepts `Regular`, `Hard1`, or `Hard2`. Individual checkpoint paths can be supplied with `--gppo_no_ho-checkpoint`, `--gppo_ho-checkpoint`, `--stgnn_no_ho-checkpoint`, and `--stgnn_ho-checkpoint`. Greedy inference uses the exact evaluator and optional bounded Top-K repair (K=5, five iterations, beam width 4 by default). Use `--repair none` to disable repair. Deadline mode requires `--repair-decision-budget-seconds`.
+
+### Checkpoint trust
+
+Checkpoint loading uses PyTorch `weights_only=True` by default and does not fall back to unrestricted pickle loading after an error. New resumable checkpoints store their NumPy random state using primitive values so they load through this safe path. Legacy checkpoints containing unsupported Python/NumPy objects require the explicit `--trust-checkpoint` flag in inference/evaluation or in the lower-level trainer resume/fine-tune commands. Only use that flag for a checkpoint from a trusted source: unrestricted pickle loading can execute code. Architecture, observation-feature mode/schema, formulation, split names, and recurrent metadata checks remain enforced; held-out dataset identity is relaxed only by the explicit public inference path.
 
 ## CPLEX benchmark
 
-Build the native bridge against an installed CPLEX Studio distribution:
+Build the native bridge against a local CPLEX Studio installation and run a bounded smoke solve:
 
 ```bash
 cmake -S src/bench/cpp -B build/cplex -DCMAKE_BUILD_TYPE=Release -DCPLEX_ROOT=/path/to/CPLEX_Studio2211
 cmake --build build/cplex --parallel 4
-python scripts/benchmark_cplex.py --topology 8 --condition Regular --episodes 0 --time-limit 120 --threads 1 --mip-gap 0.01
+python scripts/benchmark_cplex.py --topology 8 --condition Regular --episodes 0 --episode-length 1 --time-limit 1 --threads 1 --optimization-mode mirror_soft
 ```
 
-The CLI supports `--optimization-mode mirror_soft` and `hard_service_feasibility`. Use repeatable `--policy-mip-start <rh_decisions.csv>` arguments to provide policy traces as MIP starts. The native solver objective and exact evaluator cost are reported separately.
+The solver supports `mirror_soft` and `hard_service_feasibility`; repeatable `--policy-mip-start <rh_decisions.csv>` arguments supply policy traces as MIP starts. The native objective and exact evaluator cost are reported separately. `OptimalTol` means optimal within the configured native MIP gap. A feasible incumbent returned at the time limit is a best-known solution and is not a certificate of optimality. CPLEX binaries, headers, libraries, and license files are not shipped. Build output stays under the ignored `build/` directory.
 
-An incumbent found before a time limit is a best-known solution, not necessarily a certified optimum. `OptimalTol` means optimal within the configured native MIP gap, not exact nonlinear global optimality. Missing CPLEX libraries or a license cause an explicit failure; no substitute solver is used. Build artifacts stay under the ignored `build/` directory, and IBM libraries and license files are not copied into this repository.
+These commands are software checks, not full paper reproduction. Full reproduction requires the specified datasets, experimental settings, and 60,000 training iterations; smoke output is not a published research result.
 
-The verified native build used CPLEX Studio 22.1.1, GCC 13.1, CMake 3.22.1, and OpenMP 4.5. One-timestep smoke solves succeeded for both optimization modes with exact post-solve feasibility. For a 288-step episode, a 10-second limit without a MIP start returned no incumbent; with a compatible trained-policy trace, it returned a feasible incumbent with 288/288 exact-feasible actions but did not prove optimality:
+## Data and licensing
 
-```bash
-python scripts/benchmark_cplex.py --topology 8 --condition Regular --episodes 0 --episode-length 288 --time-limit 10 --threads 1 --mip-gap 0.01 --optimization-mode mirror_soft --policy-mip-start outputs/inference/gppo_no_ho/rh_decisions.csv
-```
-
-## Dataset availability and rights
-
-The current source-only GitHub repository does not include `mock_data/`. The local dataset tree contains 7,819,515,833 bytes: 360 files in `v2/` and 553 files in `testset/`. All retained files matched their original counterparts by SHA-256 during validation. The supported 8/16/32/64-RH training and Regular/Hard1/Hard2 held-out layouts load; each has 100 assignments to four training or two held-out topology profiles, with no profile-hash overlap between training and test data.
-
-Dataset redistribution is separate from the software license. The retained metadata does not establish redistribution permission for generated or OpenIreland-derived data. Confirm the data origins and rights before publishing or redistributing the datasets.
-
-Sixteen `topology_contamination_check.json` files contain 32 absolute developer paths. These paths are provenance references, not runtime inputs. They remain unchanged so source parity can be checked. Before publication, a sanitization pass should remove the absolute path prefix from each `held_out_test_dataset` and `source_training_dataset` value, retain the dataset basename, and produce a new metadata checksum manifest for maintainer review.
-
-No public dataset archive or download URL is available. If the data is distributed separately, publish an immutable version, a download location, and a SHA-256 manifest. Extract the files under `mock_data/v2/` and `mock_data/testset/`, verify them from the repository root with `sha256sum -c <manifest>`, and use `--dataset` when storing them elsewhere. The source code is MIT-licensed; that license does not grant rights to the separate datasets. GitHub LFS storage and bandwidth quotas also apply if LFS is chosen for future data distribution. See [GitHub LFS billing](https://docs.github.com/en/billing/concepts/product-billing/git-lfs) and [GitHub's LFS file limits](https://docs.github.com/en/repositories/working-with-files/managing-large-files/about-git-large-file-storage).
-
-<details>
-<summary>Source audit and maintainer notes</summary>
-
-| Area | Purpose and release decision |
-| --- | --- |
-| `src/pipeline/`, `src/env/` | Load CSV datasets and topology data for training, inference, and MILP. |
-| `src/model/` | Shared exact evaluator, split semantics, causal observations, policy architectures, training, inference, and Top-K repair. |
-| `src/bench/` | Native CPLEX model and exact post-solve evaluation; source is retained and binary builds are ignored. |
-| `src/utils/data_config*.py` | Runtime topology and profile normalization moved from the legacy `data/mock_generator/` modules without formula changes. |
-| `scripts/ablation/` | Training and inference implementation modules used by the public launchers. Legacy data-generation helpers are not part of the public training flow. |
-| `scripts/benchmark/run_milp_oracle.py` | Episode selection, MILP solve, and exact validation behind `benchmark_cplex.py`. |
-| `config/` | RL settings and the legacy configuration adapter required by training. |
-| `analysis/`, `tmp/`, notebooks, plotting and dataset-generation scripts, old shell entry points | Development-only flows omitted from the public interface. |
-
-The C++ bridge retains the solver equations and interface. The CMake file omits a development experiment target. Training and inference retain the source equations; the launchers select paths and flags. The original training script expects an exact `episode_length × num_episodes` layout and cannot run a one-step episode against a 288-step dataset. Checkpoints must match the model architecture, observation mode, and formulation. Inference explicitly permits a test-dataset identity difference.
-
-</details>
+The MIT license applies to released source code. It does not grant rights to external datasets or IBM CPLEX. Dataset redistribution rights remain under maintainer review; no dataset download, upload, or Git LFS setup is provided by this repository. Existing provenance JSON is unchanged in this release task and may contain development-host paths; provenance sanitization and external dataset hosting remain unresolved. Do not redistribute the datasets until their rights and provenance have been reviewed.
